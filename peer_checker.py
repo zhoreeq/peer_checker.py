@@ -4,6 +4,7 @@ import os
 import sys
 import logging
 import asyncio
+import subprocess
 from datetime import datetime
 
 get_loop = asyncio.get_running_loop if hasattr(asyncio, "get_running_loop") \
@@ -167,8 +168,15 @@ if __name__ == "__main__":
         i += 1
 
     if DATA_DIR is None:
-        print('You should at least specify public_peers path')
-        terminate()
+        DATA_DIR = "public-peers"
+        if not os.path.exists(DATA_DIR):
+            print("Clone public peers repository:")
+            subprocess.call(
+                ["git", "clone", "--depth=1",
+                 "https://github.com/yggdrasil-network/public-peers.git"])
+        else:
+            print("Update public peers repository:")
+            subprocess.call(["git", "-C", "public-peers", "pull"])
 
     print("Report date:", datetime.utcnow().strftime("%c"))
     asyncio.run(main(regions=region_arg, countries=country_arg))
