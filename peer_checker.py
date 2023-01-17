@@ -5,6 +5,7 @@ import sys
 import logging
 import asyncio
 import subprocess
+import configparser
 from datetime import datetime
 
 get_loop = asyncio.get_running_loop if hasattr(asyncio, "get_running_loop") \
@@ -139,10 +140,16 @@ def terminate():
 
 
 if __name__ == "__main__":
-    DATA_DIR = None
-    SHOW_DEAD = False       # don't show dead peers by default
-    region_arg = None
-    country_arg = None
+    cfg = configparser.ConfigParser()
+    cfg.read("peer_checker.conf")
+    config = cfg["CONFIG"]
+
+    DATA_DIR = config.get("data_dir")
+    UPD_REPO = config.getboolean("update_repo")
+    SHOW_DEAD = config.getboolean("show_dead")
+
+    region_arg = config.get("regions_list").split()
+    country_arg = config.get("countries_list").split()
 
     i = 1
     while i < len(sys.argv):
@@ -163,20 +170,19 @@ if __name__ == "__main__":
             except:
                 print('You use "-c" flag but did not set country')
                 terminate()
-        elif DATA_DIR is None:
+        else:
             DATA_DIR = arg
         i += 1
 
-    if DATA_DIR is None:
+    if not DATA_DIR:
         DATA_DIR = "public-peers"
-        if not os.path.exists(DATA_DIR):
-            print("Clone public peers repository:")
-            subprocess.call(
-                ["git", "clone", "--depth=1",
-                 "https://github.com/yggdrasil-network/public-peers.git"])
-        else:
-            print("Update public peers repository:")
-            subprocess.call(["git", "-C", "public-peers", "pull"])
 
-    print("Report date:", datetime.utcnow().strftime("%c"))
+    if not os.path.exists(DATA_DIR):
+        subprocess.call(
+            ["git", "clone", "--depth=1", config.get("repo_url"), DATA_DIR])
+    elif UPD_REPO and os.path.exists(os.path.join(DATA_DIR, ".git")):
+        print("Update public peers repository:")
+        subprocess.call(["git", "-C", DATA_DIR, "pull"])
+
+    print("\nReport date (UTC):", datetime.utcnow().strftime("%c"))
     asyncio.run(main(regions=region_arg, countries=country_arg))
