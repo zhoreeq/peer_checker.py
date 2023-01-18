@@ -10,7 +10,6 @@ from datetime import datetime
 
 get_loop = asyncio.get_running_loop if hasattr(asyncio, "get_running_loop") \
     else asyncio.get_event_loop
-PEER_REGEX = re.compile(r"`(tcp|tls)://([a-z0-9\.\-\:\[\]]+):([0-9]+)`")
 
 def get_peers(regions=[], countries=[]):
     """Scan repository directory for peers"""
@@ -148,6 +147,10 @@ if __name__ == "__main__":
     DATA_DIR = config.get("data_dir", fallback="public_peers")
     UPD_REPO = config.getboolean("update_repo", fallback=True)
     SHOW_DEAD = config.getboolean("show_dead", fallback=False)
+    PEER_KIND = config.get("peer_kind")
+    if PEER_KIND not in ("tcp", "tls"):
+        PEER_KIND = "tcp|tls"
+    PEER_REGEX = re.compile(rf"`({PEER_KIND})://([a-z0-9\.\-\:\[\]]+):([0-9]+)`")
 
     region_arg = config.get("regions_list").split()
     country_arg = config.get("countries_list").split()
