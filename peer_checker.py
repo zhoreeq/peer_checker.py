@@ -12,17 +12,16 @@ get_loop = asyncio.get_running_loop if hasattr(asyncio, "get_running_loop") \
     else asyncio.get_event_loop
 PEER_REGEX = re.compile(r"`(tcp|tls)://([a-z0-9\.\-\:\[\]]+):([0-9]+)`")
 
-def get_peers(regions=None, countries=None):
+def get_peers(regions=[], countries=[]):
     """Scan repository directory for peers"""
     assert os.path.exists(os.path.join(DATA_DIR, "README.md")), "Invalid path"
     peers = []
 
-    if regions is None:
+    if not regions:
         regions = [d for d in os.listdir(DATA_DIR) if \
                 os.path.isdir(os.path.join(DATA_DIR, d)) and \
                 not d in [".git", "other"]]
-    if countries is None:
-        countries = []
+    if not countries:
         for region in regions:
             region_dir = os.path.join(DATA_DIR, region)
             countries += [f for f in os.listdir(region_dir) if f.endswith(".md")]
@@ -41,8 +40,9 @@ def get_peers(regions=None, countries=None):
 
 async def resolve(name):
     """Get IP address or none to skip scan"""
-    if name.startswith("["): return name[1:-1] # clear ipv6 address
-    addr = name
+    # handle clear ipv6 address
+    if name.startswith("["):
+        return name[1:-1]
 
     try:
         info = await get_loop().getaddrinfo(name, None)
@@ -118,8 +118,7 @@ async def main(regions=None, countries=None):
     try:
         peers = get_peers(regions=regions, countries=countries)
     except:
-        print(f"Can't find peers in a directory: {DATA_DIR}")
-        terminate()
+        terminate(f"Can't find peers in a directory: {DATA_DIR}")
 
     results = await asyncio.gather(*[isup(p) for p in peers])
     print_results(results)
@@ -133,8 +132,10 @@ def print_usage():
     print(f"Examples: {sys.argv[0]} ~/Projects/yggdrasil/public_peers\n"
           f"          {sys.argv[0]} -d ../public_peers -r europe")
 
-def terminate():
-    """Terminate app with help message"""
+def terminate(msg=''):
+    """Terminate app with message and usage information"""
+    if msg:
+        print(msg)
     print_usage()
     sys.exit()
 
@@ -144,9 +145,9 @@ if __name__ == "__main__":
     cfg.read("peer_checker.conf")
     config = cfg["CONFIG"]
 
-    DATA_DIR = config.get("data_dir")
-    UPD_REPO = config.getboolean("update_repo")
-    SHOW_DEAD = config.getboolean("show_dead")
+    DATA_DIR = config.get("data_dir", fallback="public_peers")
+    UPD_REPO = config.getboolean("update_repo", fallback=True)
+    SHOW_DEAD = config.getboolean("show_dead", fallback=False)
 
     region_arg = config.get("regions_list").split()
     country_arg = config.get("countries_list").split()
@@ -161,21 +162,16 @@ if __name__ == "__main__":
             try:
                 region_arg = sys.argv[i].split(",")
             except:
-                print('You use "-r" flag but did not set region')
-                terminate()
+                terminate('You use "-r" flag but did not set region')
         elif arg == '-c':   # set country flag
             i += 1
             try:
                 country_arg = sys.argv[i].split(",")
             except:
-                print('You use "-c" flag but did not set country')
-                terminate()
+                terminate('You use "-c" flag but did not set country')
         else:
             DATA_DIR = arg
         i += 1
-
-    if not DATA_DIR:
-        DATA_DIR = "public-peers"
 
     if not os.path.exists(DATA_DIR):
         subprocess.call(
