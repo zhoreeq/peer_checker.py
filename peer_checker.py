@@ -6,6 +6,7 @@ import logging
 import asyncio
 import subprocess
 import configparser
+import argparse
 from datetime import datetime
 
 get_loop = asyncio.get_running_loop if hasattr(asyncio, "get_running_loop") \
@@ -114,22 +115,6 @@ async def main(peers):
     results = await asyncio.gather(*[isup(p) for p in peers])
     return results
 
-def print_usage():
-    """Print usage information"""
-    print(f"\nUsage: {sys.argv[0]} [path to public_peers repository on a disk]")
-    print("Flags:   -r <regions>    - set peers regions (split by ',')\n"
-          "         -c <countries>  - set peers countries (split by ',')\n"
-          "         -d              - show dead peers")
-    print(f"Examples: {sys.argv[0]} ~/Projects/yggdrasil/public_peers\n"
-          f"          {sys.argv[0]} -d ../public_peers -r europe")
-
-def terminate(msg=''):
-    """Terminate app with message and usage information"""
-    if msg:
-        print(msg)
-    print_usage()
-    sys.exit()
-
 
 if __name__ == "__main__":
     # load config file
@@ -137,38 +122,52 @@ if __name__ == "__main__":
     cfg.read("peer_checker.conf")
     config = cfg["CONFIG"]
 
-    DATA_DIR = config.get("data_dir", fallback="public_peers")
-    UPD_REPO = config.getboolean("update_repo", fallback=True)
-    SHOW_DEAD = config.getboolean("show_dead", fallback=False)
-    peer_kind = config.get("peer_kind")
-    if peer_kind not in ("tcp", "tls"):
-        peer_kind = "tcp|tls"
+    # get arguments from command line
+    parser = argparse.ArgumentParser()
+    parser.add_argument('data_dir', nargs='?', type=str,
+                        help='path to public peers repository')
+    parser.add_argument('-r', '--regions',
+                        action="extend", nargs="+", type=str,
+                        help='list of peers regions')
+    parser.add_argument('-c', '--countries',
+                        action="extend", nargs="+", type=str,
+                        help='list of peers countries')
+    parser.add_argument('-d', '--show_dead', action='store_true', default=None,
+                        help='show dead peers table')
+    parser.add_argument('-p', '--do_not_pull',
+                        action='store_false', default=None,
+                        help="don't pull new peers data from git repository "
+                             "on start")
+    parser.add_argument('--tcp', action='store_true', default=None,
+                        help='show tcp peers')
+    parser.add_argument('--tls', action='store_true', default=None,
+                        help='show tls peers')
+    args = parser.parse_args()
+
+    # command line args replace config options
+    DATA_DIR = args.data_dir if args.data_dir is not None else \
+        config.get("data_dir", fallback="public_peers")
+    SHOW_DEAD = args.show_dead if args.show_dead is not None else \
+        config.getboolean("show_dead", fallback=False)
+    UPD_REPO = args.do_not_pull if args.do_not_pull is not None else \
+        config.getboolean("update_repo", fallback=True)
+
+    if args.tcp == args.tls is None:
+        peer_kind = config.get("peer_kind")
+        if peer_kind not in ("tcp", "tls"):
+            peer_kind = "tcp|tls"
+    else:
+        peer_kind = ''
+        if args.tcp is not None:
+            peer_kind = "tcp"
+        if args.tls is not None:
+            peer_kind += "|tls" if peer_kind else "tls"
     PEER_REGEX = re.compile(rf"`({peer_kind})://([a-z0-9\.\-\:\[\]]+):([0-9]+)`")
 
-    regions = config.get("regions_list", fallback='').split()
-    countries = config.get("countries_list", fallback='').split()
-
-    # get arguments from command line
-    i = 1
-    while i < len(sys.argv):
-        arg = sys.argv[i]
-        if arg == '-d':     # show dead peers flag
-            SHOW_DEAD = True
-        elif arg == '-r':   # set region flag
-            i += 1
-            try:
-                regions = sys.argv[i].split(",")
-            except:
-                terminate('You use "-r" flag but did not set region')
-        elif arg == '-c':   # set country flag
-            i += 1
-            try:
-                countries = sys.argv[i].split(",")
-            except:
-                terminate('You use "-c" flag but did not set country')
-        else:
-            DATA_DIR = arg
-        i += 1
+    regions = args.regions if args.regions is not None else \
+        config.get("regions_list", fallback='').split()
+    countries = args.countries if args.countries is not None else \
+        config.get("countries_list", fallback='').split()
 
     # get or update public peers data from git
     if not os.path.exists(DATA_DIR):
@@ -182,7 +181,8 @@ if __name__ == "__main__":
     try:
         peers = get_peers(regions, countries)
     except:
-        terminate(f"Can't find peers in a directory: {DATA_DIR}")
+        print(f"Can't find peers in a directory: {DATA_DIR}")
+        sys.exit()
 
     print("\nReport date (UTC):", datetime.utcnow().strftime("%c"))
     print_results(asyncio.run(main(peers)))
