@@ -11,19 +11,19 @@ from datetime import datetime
 get_loop = asyncio.get_running_loop if hasattr(asyncio, "get_running_loop") \
     else asyncio.get_event_loop
 
-def get_peers(regions=[], countries=[]):
+def get_peers(regions, countries):
     """Scan repository directory for peers"""
     assert os.path.exists(os.path.join(DATA_DIR, "README.md")), "Invalid path"
     peers = []
 
     if not regions:
         regions = [d for d in os.listdir(DATA_DIR) if \
-                os.path.isdir(os.path.join(DATA_DIR, d)) and \
-                not d in [".git", "other"]]
+                   os.path.isdir(os.path.join(DATA_DIR, d)) and \
+                   not d in [".git", "other"]]
     if not countries:
         for region in regions:
-            region_dir = os.path.join(DATA_DIR, region)
-            countries += [f for f in os.listdir(region_dir) if f.endswith(".md")]
+            r_path = os.path.join(DATA_DIR, region)
+            countries += [f for f in os.listdir(r_path) if f.endswith(".md")]
     else:
         countries = [country + ".md" for country in countries]
 
@@ -109,18 +109,10 @@ def print_results(results):
         for p in p_table:
             print(p[0].ljust(addr_w), p[2])
 
-async def main(regions=None, countries=None):
-    """
-    Main function.
-    Get peers, state and print results.
-    """
-    try:
-        peers = get_peers(regions=regions, countries=countries)
-    except:
-        terminate(f"Can't find peers in a directory: {DATA_DIR}")
-
+async def main(peers):
+    """Main async function to check peers state"""
     results = await asyncio.gather(*[isup(p) for p in peers])
-    print_results(results)
+    return results
 
 def print_usage():
     """Print usage information"""
@@ -140,6 +132,7 @@ def terminate(msg=''):
 
 
 if __name__ == "__main__":
+    # load config file
     cfg = configparser.ConfigParser()
     cfg.read("peer_checker.conf")
     config = cfg["CONFIG"]
@@ -147,14 +140,15 @@ if __name__ == "__main__":
     DATA_DIR = config.get("data_dir", fallback="public_peers")
     UPD_REPO = config.getboolean("update_repo", fallback=True)
     SHOW_DEAD = config.getboolean("show_dead", fallback=False)
-    PEER_KIND = config.get("peer_kind")
-    if PEER_KIND not in ("tcp", "tls"):
-        PEER_KIND = "tcp|tls"
-    PEER_REGEX = re.compile(rf"`({PEER_KIND})://([a-z0-9\.\-\:\[\]]+):([0-9]+)`")
+    peer_kind = config.get("peer_kind")
+    if peer_kind not in ("tcp", "tls"):
+        peer_kind = "tcp|tls"
+    PEER_REGEX = re.compile(rf"`({peer_kind})://([a-z0-9\.\-\:\[\]]+):([0-9]+)`")
 
-    region_arg = config.get("regions_list").split()
-    country_arg = config.get("countries_list").split()
+    regions = config.get("regions_list", fallback='').split()
+    countries = config.get("countries_list", fallback='').split()
 
+    # get arguments from command line
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]
@@ -163,19 +157,20 @@ if __name__ == "__main__":
         elif arg == '-r':   # set region flag
             i += 1
             try:
-                region_arg = sys.argv[i].split(",")
+                regions = sys.argv[i].split(",")
             except:
                 terminate('You use "-r" flag but did not set region')
         elif arg == '-c':   # set country flag
             i += 1
             try:
-                country_arg = sys.argv[i].split(",")
+                countries = sys.argv[i].split(",")
             except:
                 terminate('You use "-c" flag but did not set country')
         else:
             DATA_DIR = arg
         i += 1
 
+    # get or update public peers data from git
     if not os.path.exists(DATA_DIR):
         subprocess.call(
             ["git", "clone", "--depth=1", config.get("repo_url"), DATA_DIR])
@@ -183,5 +178,11 @@ if __name__ == "__main__":
         print("Update public peers repository:")
         subprocess.call(["git", "-C", DATA_DIR, "pull"])
 
+    # parse and check peers
+    try:
+        peers = get_peers(regions, countries)
+    except:
+        terminate(f"Can't find peers in a directory: {DATA_DIR}")
+
     print("\nReport date (UTC):", datetime.utcnow().strftime("%c"))
-    asyncio.run(main(regions=region_arg, countries=country_arg))
+    print_results(asyncio.run(main(peers)))
